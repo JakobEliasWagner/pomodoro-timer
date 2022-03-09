@@ -1,60 +1,63 @@
-cmake_minimum_required(VERSION 3.14 FATAL_ERROR)
+option(ENABLE_UNIT_TESTS "Enable unit tests" ON)
+message(STATUS "Enable testing: ${ENABLE_UNIT_TESTS}")
 
-project(GreeterTests LANGUAGES CXX)
+if (ENABLE_UNIT_TESTS)
+    # the following code to fetch googletest
+    # is inspired by and adapted after:
+    #   - https://cmake.org/cmake/help/v3.11/module/FetchContent.html
+    include(FetchContent)
 
-# ---- Options ----
+    FetchContent_Declare(
+            googletest
+            GIT_REPOSITORY https://github.com/google/googletest.git
+            GIT_TAG release-1.11.0
+    )
 
-option(ENABLE_TEST_COVERAGE "Enable test coverage" OFF)
-option(TEST_INSTALLED_VERSION "Test the version found by find_package" OFF)
+    FetchContent_GetProperties(googletest)
 
-# --- Import tools ----
+    if (NOT googletest_POPULATED)
+        FetchContent_Populate(googletest)
 
-include(../cmake/tools.cmake)
+        # Prevent GoogleTest from overriding our compiler/linker options
+        # when building with Visual Studio
+        set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+        # Prevent GoogleTest from using PThreads
+        set(gtest_disable_pthreads ON CACHE BOOL "" FORCE)
 
-# ---- Dependencies ----
+        # adds the targers: gtest, gtest_main, gmock, gmock_main
+        add_subdirectory(
+                ${googletest_SOURCE_DIR}
+                ${googletest_BINARY_DIR}
+        )
 
-include(../cmake/CPM.cmake)
+        # Silence std::tr1 warning on MSVC
+        if (MSVC)
+            foreach (_tgt gtest gtest_main gmock gmock_main)
+                target_compile_definitions(${_tgt}
+                        PRIVATE
+                        "_SILENCE_TR1_NAMESPACE_DEPRECATION_WARNING"
+                        )
+            endforeach ()
+        endif ()
+    endif ()
 
-CPMAddPackage("gh:onqtam/doctest#2.4.5")
-CPMAddPackage("gh:TheLartians/Format.cmake@1.7.0")
+    add_executable(test-pom "")
 
-if(TEST_INSTALLED_VERSION)
-  find_package(Greeter REQUIRED)
-else()
-  CPMAddPackage(NAME Greeter SOURCE_DIR ${CMAKE_CURRENT_LIST_DIR}/..)
-endif()
+    target_sources(test-pom
+            PRIVATE
+            test.cpp
+            )
 
-# ---- Create binary ----
+    target_link_libraries(test-pom
+            PRIVATE
+            ui
+            gtest_main
+            )
 
-file(GLOB sources CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/source/*.cpp)
-add_executable(${PROJECT_NAME} ${sources})
-target_link_libraries(${PROJECT_NAME} doctest::doctest Greeter::Greeter)
-set_target_properties(${PROJECT_NAME} PROPERTIES CXX_STANDARD 17)
+    enable_testing()
 
-# enable compiler warnings
-if(NOT TEST_INSTALLED_VERSION)
-  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES "GNU")
-    target_compile_options(Greeter PUBLIC -Wall -Wpedantic -Wextra -Werror)
-  elseif(MSVC)
-    target_compile_options(Greeter PUBLIC /W4 /WX)
-    target_compile_definitions(${PROJECT_NAME} PUBLIC DOCTEST_CONFIG_USE_STD_HEADERS)
-  endif()
-endif()
-
-# ---- Add GreeterTests ----
-
-enable_testing()
-
-# Note: doctest and similar testing frameworks can automatically configure CMake tests. For other
-# testing frameworks add the tests target instead: add_test(NAME ${PROJECT_NAME} COMMAND
-# ${PROJECT_NAME})
-
-include(${doctest_SOURCE_DIR}/scripts/cmake/doctest.cmake)
-doctest_discover_tests(${PROJECT_NAME})
-
-# ---- code coverage ----
-
-if(ENABLE_TEST_COVERAGE)
-  target_compile_options(Greeter PUBLIC -O0 -g -fprofile-arcs -ftest-coverage)
-  target_link_options(Greeter PUBLIC -fprofile-arcs -ftest-coverage)
-endif()
+    add_test(
+            NAME google_test
+            COMMAND $<TARGET_FILE:test-pom>
+    )
+endif ()
